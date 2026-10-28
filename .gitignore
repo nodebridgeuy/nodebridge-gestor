@@ -1,0 +1,6 @@
+# PDF subidos por los funcionarios (no van al repositorio)
+uploads/documentos/*
+!uploads/documentos/.gitkeep
+
+# Claves y configuración local
+.env

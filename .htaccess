@@ -1,0 +1,4 @@
+# Solo Apache/XAMPP: el archivo .env guarda la clave del portal y no debe poder abrirse desde el navegador.
+<FilesMatch "^\.env">
+    Require all denied
+</FilesMatch>
