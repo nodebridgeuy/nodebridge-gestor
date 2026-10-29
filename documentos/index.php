@@ -65,7 +65,9 @@ encabezado($esGuia ? 'Guías generales' : 'Documentos', $esGuia ? 'guias' : 'doc
 <?php if ($esGuia): ?>
     <p class="text-secondary">
         Las guías generales se publican en el portal informativo, en la página de su categoría.
-        <?= es_admin() ? 'Solo los administradores pueden subirlas, editarlas o eliminarlas.' : '' ?>
+        <?= es_admin()
+            ? 'Los funcionarios pueden subirlas, pero quedan pendientes hasta que un administrador las publique.'
+            : 'Puede subir guías: quedan pendientes hasta que un administrador las publique en el portal.' ?>
     </p>
     <?php if (es_admin() && !portal_configurado()): ?>
         <div class="alert alert-warning"><?= h(MSG_PORTAL_SIN_CONFIGURAR) ?> Las guías se guardan, pero quedan pendientes de publicar.</div>
@@ -94,8 +96,8 @@ encabezado($esGuia ? 'Guías generales' : 'Documentos', $esGuia ? 'guias' : 'doc
         </div>
     </form>
 
-    <?php if (es_admin()): ?>
-        <div class="d-flex flex-wrap gap-2">
+    <div class="d-flex flex-wrap gap-2">
+        <?php if (es_admin()): ?>
             <?php if ($esGuia && $pendientes > 0): ?>
                 <form method="POST" action="<?= h(url('documentos/publicar.php')) ?>">
                     <?= csrf_campo() ?>
@@ -111,11 +113,11 @@ encabezado($esGuia ? 'Guías generales' : 'Documentos', $esGuia ? 'guias' : 'doc
                     <button class="btn btn-outline-secondary" type="submit">Republicar todas</button>
                 </form>
             <?php endif; ?>
-            <a class="btn btn-success" href="<?= h(url('documentos/formulario.php' . $tipoUrl)) ?>">
-                <?= $esGuia ? 'Subir guía general' : 'Subir documento' ?>
-            </a>
-        </div>
-    <?php endif; ?>
+        <?php endif; ?>
+        <a class="btn btn-success" href="<?= h(url('documentos/formulario.php' . $tipoUrl)) ?>">
+            <?= $esGuia ? 'Subir guía general' : 'Subir documento' ?>
+        </a>
+    </div>
 </div>
 
 <div class="card">

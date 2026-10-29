@@ -3,6 +3,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/layout.php';
 require_once __DIR__ . '/../includes/encuestas.php';
+require_once __DIR__ . '/../includes/portal.php';
 
 // Encuestas (plantillas) creadas: solo la lista, con buscador por nombre y filtro por sector.
 // Solo Administrador. Las respuestas de los pacientes no se muestran acá.
@@ -33,7 +34,7 @@ $porPagina = 15;
 [$pagina, $paginas, $desde] = paginar($total, $porPagina);
 
 $st = $pdo->prepare(
-    "SELECT e.id_encuesta, e.titulo_encuesta, e.activa, e.fecha_modificacion,
+    "SELECT e.id_encuesta, e.titulo_encuesta, e.activa, e.estado_portal, e.fecha_modificacion,
             s.nombre_sector,
             (SELECT COUNT(*) FROM pregunta p WHERE p.id_encuesta = e.id_encuesta) AS cantidad_preguntas
        FROM encuesta e
@@ -49,9 +50,18 @@ $sectores = listar_sectores();
 $hayFiltros = ($q !== '' || $sectorSel > 0);
 // Para elegir el mensaje cuando la lista sale vacía: ¿no hay ninguna encuesta o solo ninguna con esos filtros?
 $hayEncuestas = $encuestas ? true : (bool) $pdo->query('SELECT 1 FROM encuesta LIMIT 1')->fetchColumn();
+$pendientesPortal = (int) $pdo->query('SELECT COUNT(*) FROM encuesta WHERE ' . SQL_ENCUESTAS_PENDIENTES_PORTAL)->fetchColumn();
 
 encabezado('Encuestas', 'encuestas');
 ?>
+<p class="text-secondary">
+    Las encuestas <strong>activas</strong> se publican en el portal informativo, donde los pacientes las responden.
+    Las respuestas llegan a la sección «Respuestas».
+</p>
+<?php if (!portal_configurado()): ?>
+    <div class="alert alert-warning"><?= h(MSG_PORTAL_SIN_CONFIGURAR) ?> Las encuestas se guardan, pero no se publican en el portal.</div>
+<?php endif; ?>
+
 <div class="d-flex flex-wrap gap-2 justify-content-between align-items-start mb-3">
     <form method="GET" class="row g-2 flex-grow-1" style="max-width: 760px;">
         <div class="col-12 col-md-5">
@@ -78,7 +88,16 @@ encabezado('Encuestas', 'encuestas');
         <?php endif; ?>
     </form>
 
-    <a class="btn btn-success" href="<?= h(url('encuestas/formulario.php')) ?>">Nueva encuesta</a>
+    <div class="d-flex flex-wrap gap-2">
+        <?php if ($pendientesPortal > 0): ?>
+            <form method="POST" action="<?= h(url('encuestas/publicar.php')) ?>">
+                <?= csrf_campo() ?>
+                <input type="hidden" name="accion" value="pendientes">
+                <button class="btn btn-outline-primary" type="submit">Actualizar el portal (<?= $pendientesPortal ?>)</button>
+            </form>
+        <?php endif; ?>
+        <a class="btn btn-success" href="<?= h(url('encuestas/formulario.php')) ?>">Nueva encuesta</a>
+    </div>
 </div>
 
 <div class="card">
@@ -91,7 +110,7 @@ encabezado('Encuestas', 'encuestas');
             <table class="table table-hover align-middle mb-0 tabla-acciones">
                 <thead>
                     <tr>
-                        <th>Encuesta</th><th>Sector</th><th>Preguntas</th><th>Estado</th><th>Modificada</th>
+                        <th>Encuesta</th><th>Sector</th><th>Preguntas</th><th>Estado</th><th>Portal</th><th>Modificada</th>
                         <th class="text-end">Acciones</th>
                     </tr>
                 </thead>
@@ -106,8 +125,20 @@ encabezado('Encuestas', 'encuestas');
                                 ? '<span class="badge text-bg-success">Activa</span>'
                                 : '<span class="badge text-bg-secondary">Inactiva</span>' ?>
                         </td>
+                        <td>
+                            <?php [$textoPortal, $colorPortal] = etiqueta_portal_encuesta((int) $e['activa'], (int) $e['estado_portal']); ?>
+                            <span class="badge text-bg-<?= h($colorPortal) ?>"><?= h($textoPortal) ?></span>
+                        </td>
                         <td class="text-nowrap"><?= h(formatear_fecha($e['fecha_modificacion'])) ?></td>
                         <td class="text-end text-nowrap">
+                            <?php if ($colorPortal === 'warning'): ?>
+                                <form method="POST" action="<?= h(url('encuestas/publicar.php')) ?>">
+                                    <?= csrf_campo() ?>
+                                    <input type="hidden" name="accion" value="una">
+                                    <input type="hidden" name="id" value="<?= $id ?>">
+                                    <button class="btn btn-sm btn-outline-primary" type="submit">Publicar</button>
+                                </form>
+                            <?php endif; ?>
                             <form method="POST" action="<?= h(url('encuestas/estado.php')) ?>"
                                   <?= $e['activa'] ? 'onsubmit="return confirm(\'¿Desactivar esta encuesta? Dejará de mostrarse a los pacientes.\');"' : '' ?>>
                                 <?= csrf_campo() ?>

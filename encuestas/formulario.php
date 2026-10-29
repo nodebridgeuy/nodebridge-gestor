@@ -3,6 +3,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/layout.php';
 require_once __DIR__ . '/../includes/encuestas.php';
+require_once __DIR__ . '/../includes/portal.php';
 
 // Alta (sin id) y edición (?id=N) de una encuesta con sus preguntas. Solo Administrador.
 $usuario = requerir_admin();
@@ -64,6 +65,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->commit();
 
             avisar($encuesta === null ? 'Encuesta creada correctamente.' : 'Encuesta actualizada correctamente.');
+
+            // Si la encuesta está activa (o ya estaba en el portal), se actualiza la copia del portal.
+            $pub = sincronizar_encuesta_con_portal($idGuardado);
+            if ($pub['ok'] && $pub['accion'] === 'publicada') {
+                avisar('Los cambios ya están en el portal.', 'info');
+            } elseif (!$pub['ok']) {
+                avisar('La encuesta se guardó, pero no se pudo actualizar el portal: ' . $pub['mensaje']
+                    . ' Quedó pendiente; puede reintentar desde la lista con el botón "Publicar".', 'warning');
+            }
             redirigir('encuestas/index.php');
         } catch (PDOException $e) {
             if ($pdo->inTransaction()) {

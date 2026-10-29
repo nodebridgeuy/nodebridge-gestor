@@ -17,7 +17,7 @@ if ($r['estado'] === 'sin_configurar') {
     avisar('Se actualizó hace muy poco. Podrá volver a actualizar en ' . ($s >= 60 ? ceil($s / 60) . ' min' : $s . ' s') . '.', 'info');
 } elseif ($r['resultado']['ok']) {
     $n = $r['resultado']['nuevas'];
-    avisar($n > 0 ? 'Se recibieron ' . $n . ' encuesta' . ($n === 1 ? '' : 's') . ' nueva' . ($n === 1 ? '' : 's') . '.' : 'No hay encuestas nuevas en el portal.');
+    avisar($n > 0 ? 'Se recibieron ' . $n . ' respuesta' . ($n === 1 ? '' : 's') . ' nueva' . ($n === 1 ? '' : 's') . '.' : 'No hay respuestas nuevas en el portal.');
 } else {
     avisar('No se pudo actualizar: ' . $r['resultado']['mensaje'], 'danger');
 }

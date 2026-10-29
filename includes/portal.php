@@ -12,6 +12,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/conexion.php';
 require_once __DIR__ . '/archivos.php';
+require_once __DIR__ . '/encuestas.php';
 
 const ESTADO_PORTAL_PENDIENTE = 0;       // nunca llegó al portal
 const ESTADO_PORTAL_PUBLICADA = 1;       // publicada y al día
@@ -154,12 +155,94 @@ function despublicar_guia(int $idDocumento): array
 }
 
 /* ---------------------------------------------------------------------------------------
+ * Encuestas (plantillas): el gestor las publica en el portal mientras estén Activas
+ * y las retira cuando se desactivan o se borran. id_externo = id de la encuesta en el gestor.
+ * ------------------------------------------------------------------------------------- */
+
+/** Condición SQL de las encuestas cuya copia en el portal no está como corresponde. */
+const SQL_ENCUESTAS_PENDIENTES_PORTAL = '((activa = 1 AND estado_portal <> 1) OR (activa = 0 AND estado_portal <> 0))';
+
+/** Texto y color para mostrar el estado de una encuesta respecto del portal. */
+function etiqueta_portal_encuesta(int $activa, int $estado): array
+{
+    if ($activa === 1) {
+        return match ($estado) {
+            ESTADO_PORTAL_PUBLICADA => ['En el portal', 'success'],
+            ESTADO_PORTAL_DESACTUALIZADA => ['Cambios sin publicar', 'warning'],
+            default => ['Pendiente de publicar', 'warning'],
+        };
+    }
+    return $estado === ESTADO_PORTAL_PENDIENTE ? ['No visible', 'secondary'] : ['Pendiente de retirar', 'warning'];
+}
+
+/** Quita una encuesta del portal. Si el portal no la tiene (404) se considera hecho. */
+function despublicar_encuesta(int $idEncuesta): array
+{
+    $r = portal_peticion('eliminar_encuesta.php', [
+        'metodo' => 'POST',
+        'campos' => ['id_externo' => $idEncuesta],
+    ]);
+    if ($r['ok'] || $r['codigo'] === 404) {
+        return ['ok' => true, 'mensaje' => ''];
+    }
+    return ['ok' => false, 'mensaje' => $r['error']];
+}
+
+/**
+ * Deja la copia del portal como corresponde al estado de la encuesta:
+ *   Activa   -> la publica (o actualiza)        Inactiva -> la retira (si estaba)
+ * Devuelve ['ok', 'accion' => publicada|retirada|nada|publicar|retirar, 'mensaje', 'abortar'].
+ * Si falla, la encuesta queda "pendiente" y se puede reintentar (botón Publicar).
+ */
+function sincronizar_encuesta_con_portal(int $idEncuesta): array
+{
+    $pdo = db();
+    $st = $pdo->prepare('SELECT activa, estado_portal FROM encuesta WHERE id_encuesta = ?');
+    $st->execute([$idEncuesta]);
+    $fila = $st->fetch();
+    if (!$fila) {
+        return ['ok' => true, 'accion' => 'nada', 'mensaje' => '', 'abortar' => false];
+    }
+    $activa = (int) $fila['activa'];
+    $estado = (int) $fila['estado_portal'];
+
+    // Cambiar el estado del portal no cuenta como modificar la encuesta: se conserva fecha_modificacion.
+    $guardar = function (int $nuevo) use ($pdo, $idEncuesta): void {
+        $pdo->prepare('UPDATE encuesta SET estado_portal = ?, fecha_modificacion = fecha_modificacion WHERE id_encuesta = ?')
+            ->execute([$nuevo, $idEncuesta]);
+    };
+    $sinCambioSiNuncaLlego = $estado === ESTADO_PORTAL_PENDIENTE ? ESTADO_PORTAL_PENDIENTE : ESTADO_PORTAL_DESACTUALIZADA;
+
+    if ($activa === 1) {
+        $payload = payload_encuesta($idEncuesta);
+        $r = portal_peticion('publicar_encuesta.php', ['metodo' => 'POST', 'json' => $payload, 'timeout' => 20]);
+        if ($r['ok']) {
+            $guardar(ESTADO_PORTAL_PUBLICADA);
+            return ['ok' => true, 'accion' => 'publicada', 'mensaje' => '', 'abortar' => false];
+        }
+        $guardar($sinCambioSiNuncaLlego);
+        return ['ok' => false, 'accion' => 'publicar', 'mensaje' => $r['error'], 'abortar' => portal_error_global($r)];
+    }
+
+    if ($estado === ESTADO_PORTAL_PENDIENTE) {
+        return ['ok' => true, 'accion' => 'nada', 'mensaje' => '', 'abortar' => false];
+    }
+    $r = portal_peticion('eliminar_encuesta.php', ['metodo' => 'POST', 'campos' => ['id_externo' => $idEncuesta]]);
+    if ($r['ok'] || $r['codigo'] === 404) {
+        $guardar(ESTADO_PORTAL_PENDIENTE);
+        return ['ok' => true, 'accion' => 'retirada', 'mensaje' => '', 'abortar' => false];
+    }
+    $guardar(ESTADO_PORTAL_DESACTUALIZADA);
+    return ['ok' => false, 'accion' => 'retirar', 'mensaje' => $r['error'], 'abortar' => portal_error_global($r)];
+}
+
+/* ---------------------------------------------------------------------------------------
  * Encuestas: el gestor las pide al portal, las guarda y las confirma.
  * ------------------------------------------------------------------------------------- */
 
 const CLASIFICACIONES_VALIDAS = ['pesima', 'mala', 'regular', 'buena', 'excelente'];
 
-/** Trae las encuestas pendientes del portal. Devuelve ['ok', 'nuevas', 'mensaje']. */
+/** Trae las respuestas de pacientes que esperan en el portal. Devuelve ['ok', 'nuevas', 'mensaje']. */
 function sincronizar_encuestas(int $timeout = 10): array
 {
     $pdo = db();
@@ -177,13 +260,22 @@ function sincronizar_encuestas(int $timeout = 10): array
         }
 
         // INSERT IGNORE + uuid único: si una confirmación falló antes, no se duplica nada.
-        $ins = $pdo->prepare(
+        $insNueva = $pdo->prepare('INSERT IGNORE INTO respuesta_encuesta (uuid, fecha_portal, id_encuesta) VALUES (?, ?, ?)');
+        $insDetalle = $pdo->prepare(
+            'INSERT INTO respuesta_detalle (id_respuesta, id_pregunta, texto_pregunta, tipo, valor) VALUES (?, ?, ?, ?, ?)'
+        );
+        $insAnterior = $pdo->prepare(
             'INSERT IGNORE INTO respuesta_encuesta (uuid, clasificacion, lugar, profesional, comentario, fecha_portal, id_encuesta)
              VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
-        // Si el portal informa de qué encuesta (plantilla) es la respuesta, se guarda el vínculo
-        // (solo si esa encuesta existe en el gestor; si no, queda sin asignar).
+        // Si el portal informa de qué encuesta es la respuesta, se guarda el vínculo
+        // (solo si esa encuesta existe en el gestor; si no, queda sin asignar). Lo mismo con cada pregunta.
         $encuestasValidas = array_map('intval', $pdo->query('SELECT id_encuesta FROM encuesta')->fetchAll(PDO::FETCH_COLUMN));
+        $preguntasDe = [];
+        foreach ($pdo->query('SELECT id_pregunta, id_encuesta FROM pregunta')->fetchAll() as $f) {
+            $preguntasDe[(int) $f['id_encuesta']][] = (int) $f['id_pregunta'];
+        }
+
         $uuids = [];
         $pdo->beginTransaction();
         try {
@@ -193,31 +285,70 @@ function sincronizar_encuestas(int $timeout = 10): array
                     continue;
                 }
                 $uuids[] = $uuid;
+                $fecha = (string) ($e['fecha'] ?? date('Y-m-d H:i:s'));
+                $idEnc = in_array((int) ($e['id_encuesta'] ?? 0), $encuestasValidas, true) ? (int) $e['id_encuesta'] : null;
+
+                if (is_array($e['respuestas'] ?? null)) {
+                    // Formato actual: una respuesta por pregunta contestada.
+                    $insNueva->execute([$uuid, $fecha, $idEnc]);
+                    if ($insNueva->rowCount() === 0) {
+                        continue;   // ya estaba guardada
+                    }
+                    $idRespuesta = (int) $pdo->lastInsertId();
+                    $guardadas = 0;
+                    foreach ($e['respuestas'] as $d) {
+                        $tipo = (string) ($d['tipo'] ?? '');
+                        $valor = trim((string) ($d['valor'] ?? ''));
+                        $texto = trim((string) ($d['pregunta'] ?? ''));
+                        if (!isset(TIPOS_PREGUNTA[$tipo]) || $valor === '' || $texto === '') {
+                            continue;
+                        }
+                        $idPregunta = (int) ($d['pregunta_id'] ?? 0);
+                        $insDetalle->execute([
+                            $idRespuesta,
+                            ($idEnc !== null && in_array($idPregunta, $preguntasDe[$idEnc] ?? [], true)) ? $idPregunta : null,
+                            mb_substr($texto, 0, 255),
+                            $tipo,
+                            mb_substr($valor, 0, 500),
+                        ]);
+                        $guardadas++;
+                    }
+                    if ($guardadas === 0) {   // respuesta vacía o dañada: no se guarda, pero se confirma igual
+                        $pdo->prepare('DELETE FROM respuesta_encuesta WHERE id_respuesta = ?')->execute([$idRespuesta]);
+                        continue;
+                    }
+                    $nuevas++;
+                    continue;
+                }
+
+                // Formato anterior (formulario fijo), por si quedaron respuestas viejas esperando en el portal.
                 if (!in_array($e['clasificacion'] ?? '', CLASIFICACIONES_VALIDAS, true)) {
                     continue;   // dato inválido: se confirma igual para que no vuelva a llegar
                 }
-                $ins->execute([
+                $insAnterior->execute([
                     $uuid,
                     $e['clasificacion'],
                     mb_substr((string) ($e['lugar'] ?? ''), 0, 50),
                     mb_substr((string) ($e['profesional'] ?? ''), 0, 50),
                     isset($e['comentario']) && $e['comentario'] !== '' ? mb_substr((string) $e['comentario'], 0, 255) : null,
-                    (string) ($e['fecha'] ?? date('Y-m-d H:i:s')),
-                    in_array((int) ($e['id_encuesta'] ?? 0), $encuestasValidas, true) ? (int) $e['id_encuesta'] : null,
+                    $fecha,
+                    $idEnc,
                 ]);
-                $nuevas += $ins->rowCount();
+                $nuevas += $insAnterior->rowCount();
             }
             $pdo->commit();
         } catch (Throwable $e) {
-            $pdo->rollBack();
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
             error_log('[sigsm] sincronizar_encuestas: ' . $e->getMessage());
-            return ['ok' => false, 'nuevas' => $nuevas, 'mensaje' => 'No se pudieron guardar las encuestas recibidas.'];
+            return ['ok' => false, 'nuevas' => $nuevas, 'mensaje' => 'No se pudieron guardar las respuestas recibidas.'];
         }
 
         if ($uuids) {
             $c = portal_peticion('confirmar_encuestas.php', ['metodo' => 'POST', 'json' => ['uuids' => $uuids], 'timeout' => $timeout]);
             if (!$c['ok']) {
-                return ['ok' => false, 'nuevas' => $nuevas, 'mensaje' => 'Las encuestas se guardaron, pero no se pudo confirmarlas en el portal: ' . $c['error']];
+                return ['ok' => false, 'nuevas' => $nuevas, 'mensaje' => 'Las respuestas se guardaron, pero no se pudo confirmarlas en el portal: ' . $c['error']];
             }
         }
         if (count($lista) < 200) {

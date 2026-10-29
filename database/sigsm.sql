@@ -9,7 +9,7 @@ SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- Tablas de la versión anterior del proyecto y las actuales
-DROP TABLE IF EXISTS `ambulancia`, `respuesta`, `pregunta`, `encuesta`, `sector`, `sincronizacion`,
+DROP TABLE IF EXISTS `respuesta_detalle`, `ambulancia`, `respuesta`, `pregunta`, `encuesta`, `sector`, `sincronizacion`,
                      `respuesta_encuesta`, `documento`, `categoria`, `funcionario`, `rol`;
 
 SET FOREIGN_KEY_CHECKS = 1;
@@ -107,9 +107,9 @@ CREATE TABLE `documento` (
 CREATE TABLE `respuesta_encuesta` (
   `id_respuesta` INT AUTO_INCREMENT PRIMARY KEY,
   `uuid` CHAR(36) NOT NULL UNIQUE,
-  `clasificacion` VARCHAR(20) NOT NULL,          -- pesima, mala, regular, buena, excelente
-  `lugar` VARCHAR(50) NOT NULL,
-  `profesional` VARCHAR(50) NOT NULL,
+  `clasificacion` VARCHAR(20) NULL,              -- formato anterior (formulario fijo): pesima, mala, regular, buena, excelente
+  `lugar` VARCHAR(50) NULL,
+  `profesional` VARCHAR(50) NULL,
   `comentario` VARCHAR(255) NULL,
   `fecha_portal` DATETIME NOT NULL,              -- cuándo la respondió el paciente
   `fecha_recibida` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -154,6 +154,7 @@ CREATE TABLE `encuesta` (
   `id_sector` INT NOT NULL,
   `id_funcionario` INT NOT NULL,                 -- quién la creó
   `activa` TINYINT(1) NOT NULL DEFAULT 0,        -- 1 = se muestra a los pacientes, 0 = inactiva (se crea inactiva)
+  `estado_portal` TINYINT(1) NOT NULL DEFAULT 0, -- copia en el portal: 0 = no está, 1 = publicada y al día, 2 = falta enviar cambios (o retirarla)
   `fecha_creacion` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `fecha_modificacion` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY `uq_encuesta_sector_titulo` (`id_sector`, `titulo_encuesta`),
@@ -185,6 +186,20 @@ ALTER TABLE `respuesta_encuesta`
 -- se agregan en el módulo de ambulancias). `conductor` es el conductor del turno actual (texto
 -- libre por ahora; NULL = sin asignar).
 -- ---------------------------------------------------------------------------
+-- Respuestas de los pacientes, pregunta por pregunta (una fila por pregunta contestada).
+-- El texto y el tipo de la pregunta se copian: si después se edita o se borra la pregunta, la respuesta se sigue entendiendo.
+CREATE TABLE `respuesta_detalle` (
+  `id_detalle` INT AUTO_INCREMENT PRIMARY KEY,
+  `id_respuesta` INT NOT NULL,
+  `id_pregunta` INT NULL,                        -- NULL si la pregunta ya no existe
+  `texto_pregunta` VARCHAR(255) NOT NULL,
+  `tipo` VARCHAR(10) NOT NULL,                   -- escala, opcion, texto
+  `valor` VARCHAR(500) NOT NULL,                 -- escala: 1 a 5; opcion: la opción elegida; texto: lo escrito
+  INDEX `idx_detalle_respuesta` (`id_respuesta`),
+  CONSTRAINT `fk_detalle_id_respuesta` FOREIGN KEY (`id_respuesta`) REFERENCES `respuesta_encuesta` (`id_respuesta`) ON DELETE CASCADE,
+  CONSTRAINT `fk_detalle_id_pregunta` FOREIGN KEY (`id_pregunta`) REFERENCES `pregunta` (`id_pregunta`) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
 CREATE TABLE `ambulancia` (
   `id_ambulancia` INT AUTO_INCREMENT PRIMARY KEY,
   `nombre` VARCHAR(50) NOT NULL UNIQUE,          -- ej. "Ambulancia 1"

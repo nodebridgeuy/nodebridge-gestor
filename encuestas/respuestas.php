@@ -67,6 +67,20 @@ $st = $pdo->prepare(
 $st->execute($params);
 $respuestas = $st->fetchAll();
 
+// Respuestas pregunta por pregunta de las filas que se muestran (una sola consulta para toda la página).
+$detalles = [];
+if ($respuestas) {
+    $ids = array_map(fn(array $r): int => (int) $r['id_respuesta'], $respuestas);
+    $marcas = implode(',', array_fill(0, count($ids), '?'));
+    $st = $pdo->prepare("SELECT id_respuesta, texto_pregunta, tipo, valor FROM respuesta_detalle WHERE id_respuesta IN ($marcas) ORDER BY id_detalle");
+    $st->execute($ids);
+    foreach ($st->fetchAll() as $d) {
+        $detalles[(int) $d['id_respuesta']][] = $d;
+    }
+}
+// Color de cada valor de la escala de 1 a 5
+const COLORES_ESCALA = [1 => 'danger', 2 => 'warning', 3 => 'secondary', 4 => 'info', 5 => 'success'];
+
 $sectores = listar_sectores();
 $hayFiltros = ($q !== '' || $sectorSel > 0);
 $hayRespuestas = $respuestas ? true : (bool) $pdo->query('SELECT 1 FROM respuesta_encuesta LIMIT 1')->fetchColumn();
@@ -132,20 +146,53 @@ encabezado('Respuestas a encuestas', 'respuestas');
             <table class="table table-hover align-middle mb-0 tabla-acciones">
                 <thead>
                     <tr>
-                        <th>Fecha</th><th>Encuesta</th><th>Sector</th><th>Calificación</th>
-                        <th>Lugar / Profesional</th><th>Comentario</th><th></th>
+                        <th>Fecha</th><th>Encuesta</th><th>Sector</th><th>Respuestas</th><th></th>
                     </tr>
                 </thead>
                 <tbody>
                 <?php foreach ($respuestas as $r):
-                    [$valor, $texto, $color] = CALIFICACIONES[$r['clasificacion']] ?? [0, $r['clasificacion'], 'secondary']; ?>
-                    <tr>
+                    $lista = $detalles[(int) $r['id_respuesta']] ?? [];
+                    $primeraEscala = null;
+                    foreach ($lista as $d) {
+                        if ($d['tipo'] === 'escala') { $primeraEscala = (int) $d['valor']; break; }
+                    } ?>
+                    <tr class="fila-respuesta" style="cursor: pointer;">
                         <td class="text-nowrap"><?= h(formatear_fecha($r['fecha_portal'])) ?></td>
                         <td><?= $r['titulo_encuesta'] !== null ? h($r['titulo_encuesta']) : '<span class="text-secondary">Sin asignar</span>' ?></td>
                         <td><?= $r['nombre_sector'] !== null ? h($r['nombre_sector']) : '<span class="text-secondary">-</span>' ?></td>
-                        <td><span class="badge text-bg-<?= h($color) ?>"><?= $valor ?> · <?= h($texto) ?></span></td>
-                        <td><?= h($r['lugar']) ?> / <?= h($r['profesional']) ?></td>
-                        <td><?= $r['comentario'] !== null && $r['comentario'] !== '' ? h($r['comentario']) : '<span class="text-secondary">Sin comentario</span>' ?></td>
+                        <td>
+                            <details>
+                                <summary style="cursor: pointer;">
+                                    <?php if ($primeraEscala !== null): ?>
+                                        <span class="badge text-bg-<?= h(COLORES_ESCALA[$primeraEscala] ?? 'secondary') ?>"><?= $primeraEscala ?> / 5</span>
+                                    <?php endif; ?>
+                                    Ver respuestas<?= $lista ? ' (' . count($lista) . ')' : '' ?>
+                                </summary>
+                                <dl class="mb-0 mt-2 small">
+                                    <?php if ($lista): ?>
+                                        <?php foreach ($lista as $d): ?>
+                                            <dt class="fw-semibold"><?= h($d['texto_pregunta']) ?></dt>
+                                            <dd class="mb-2" style="white-space: pre-line;">
+                                                <?php if ($d['tipo'] === 'escala'): ?>
+                                                    <span class="badge text-bg-<?= h(COLORES_ESCALA[(int) $d['valor']] ?? 'secondary') ?>"><?= (int) $d['valor'] ?> / 5</span>
+                                                <?php else: ?>
+                                                    <?= h($d['valor']) ?>
+                                                <?php endif; ?>
+                                            </dd>
+                                        <?php endforeach; ?>
+                                    <?php else: ?>
+                                        <?php // Respuesta del formulario anterior (campos fijos) ?>
+                                        <?php [$valorAnt, $textoAnt, $colorAnt] = CALIFICACIONES[$r['clasificacion'] ?? ''] ?? [0, (string) ($r['clasificacion'] ?? '-'), 'secondary']; ?>
+                                        <dt class="fw-semibold">Calificación</dt>
+                                        <dd class="mb-2"><span class="badge text-bg-<?= h($colorAnt) ?>"><?= $valorAnt ?> · <?= h($textoAnt) ?></span></dd>
+                                        <dt class="fw-semibold">Lugar / Profesional</dt>
+                                        <dd class="mb-2"><?= h((string) $r['lugar']) ?> / <?= h((string) $r['profesional']) ?></dd>
+                                        <dt class="fw-semibold">Comentario</dt>
+                                        <dd class="mb-0"><?= $r['comentario'] !== null && $r['comentario'] !== '' ? h($r['comentario']) : '<span class="text-secondary">Sin comentario</span>' ?></dd>
+                                    <?php endif; ?>
+                                </dl>
+                            </details>
+                        </td>
                         <td class="text-end">
                             <form method="POST" action="<?= h(url('encuestas/respuestas_eliminar.php')) ?>"
                                   onsubmit="return confirm('¿Eliminar esta respuesta?');">
@@ -168,4 +215,15 @@ encabezado('Respuestas a encuestas', 'respuestas');
         </div>
     <?php endif; ?>
 </div>
+<script>
+// Toda la fila abre o cierra las respuestas (menos el botón Eliminar y el propio "Ver respuestas",
+// que ya lo hace solo).
+document.querySelectorAll('tr.fila-respuesta').forEach(function (fila) {
+    fila.addEventListener('click', function (e) {
+        if (e.target.closest('button, a, form, summary, dl')) { return; }
+        var d = fila.querySelector('details');
+        if (d) { d.open = !d.open; }
+    });
+});
+</script>
 <?php pie(); ?>

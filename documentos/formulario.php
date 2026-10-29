@@ -5,11 +5,16 @@ require_once __DIR__ . '/../includes/archivos.php';
 require_once __DIR__ . '/../includes/layout.php';
 require_once __DIR__ . '/../includes/portal.php';
 
-// Alta (sin id) y edición (?id=N) de documentos y de guías generales. Solo Administrador.
-$usuario = requerir_admin();
+// Alta (sin id) y edición (?id=N) de documentos y de guías generales.
+//   Subir: Administrador y Funcionario.  Editar: solo Administrador.
+//   Las guías subidas por un funcionario quedan pendientes: solo un administrador las publica en el portal.
+$usuario = requerir_login();
 $pdo = db();
 
 $id = (int) ($_GET['id'] ?? $_POST['id'] ?? 0);
+if ($id > 0) {
+    requerir_admin();   // editar es solo del administrador (se controla acá, en el servidor)
+}
 $doc = null;
 if ($id > 0) {
     $st = $pdo->prepare('SELECT * FROM documento WHERE id_documento = ?');
@@ -72,8 +77,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $accionHecha = 'actualizada';
             }
 
-            if ($esGuia) {
-                // Las guías generales se envían al portal apenas se guardan.
+            if ($esGuia && !es_admin()) {
+                // Un funcionario sube la guía, pero no la publica: queda pendiente para un administrador.
+                avisar('Guía subida correctamente. Queda pendiente: un administrador la publicará en el portal.');
+            } elseif ($esGuia) {
+                // Las guías generales se envían al portal apenas las guarda un administrador.
                 $pub = publicar_guia($id);
                 if ($pub['ok']) {
                     avisar('Guía ' . $accionHecha . ' y publicada en el portal.');
@@ -99,7 +107,11 @@ encabezado(($doc ? 'Editar ' : 'Subir ') . ($esGuia ? 'guía general' : 'documen
             <div class="alert alert-danger"><?= h($error) ?></div>
         <?php endif; ?>
         <?php if ($esGuia): ?>
-            <div class="alert alert-info py-2 small">Esta guía se publicará en el portal informativo, en la página de la categoría que elija.</div>
+            <div class="alert alert-info py-2 small">
+                <?= es_admin()
+                    ? 'Esta guía se publicará en el portal informativo, en la página de la categoría que elija.'
+                    : 'Esta guía quedará pendiente: un administrador la revisará y la publicará en el portal informativo.' ?>
+            </div>
         <?php endif; ?>
 
         <form method="POST" enctype="multipart/form-data">

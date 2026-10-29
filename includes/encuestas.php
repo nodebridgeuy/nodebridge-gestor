@@ -175,3 +175,43 @@ function guardar_preguntas(PDO $pdo, int $idEncuesta, array $preguntas): void
         $borrar->execute([$idBorrar, $idEncuesta]);
     }
 }
+
+/**
+ * Datos de una encuesta tal como se los manda el gestor al portal.
+ * Los ids de las preguntas son los del gestor: así las respuestas de los pacientes vuelven apuntando a ellas.
+ */
+function payload_encuesta(int $idEncuesta): ?array
+{
+    $st = db()->prepare(
+        'SELECT e.titulo_encuesta, e.descripcion, s.nombre_sector
+           FROM encuesta e JOIN sector s ON s.id_sector = e.id_sector
+          WHERE e.id_encuesta = ?'
+    );
+    $st->execute([$idEncuesta]);
+    $e = $st->fetch();
+    if (!$e) {
+        return null;
+    }
+
+    $preguntas = [];
+    foreach (preguntas_de_encuesta($idEncuesta) as $p) {
+        $opciones = ($p['tipo'] === 'opcion' && $p['opciones'] !== '')
+            ? array_values(array_filter(array_map('trim', explode("\n", $p['opciones'])), fn(string $o): bool => $o !== ''))
+            : [];
+        $preguntas[] = [
+            'id' => $p['id'],
+            'texto' => $p['texto'],
+            'tipo' => $p['tipo'],
+            'opciones' => $opciones,
+            'obligatoria' => (bool) $p['obligatoria'],
+        ];
+    }
+
+    return [
+        'id_externo' => $idEncuesta,
+        'titulo' => (string) $e['titulo_encuesta'],
+        'descripcion' => (string) ($e['descripcion'] ?? ''),
+        'sector' => (string) $e['nombre_sector'],
+        'preguntas' => $preguntas,
+    ];
+}

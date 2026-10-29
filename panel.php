@@ -12,7 +12,7 @@ if (es_admin()) {
     $sync = sincronizar_encuestas_al_entrar();
     if ($sync['estado'] === 'ejecutada' && $sync['resultado']['ok'] && $sync['resultado']['nuevas'] > 0) {
         $n = $sync['resultado']['nuevas'];
-        avisar('Se recibieron ' . $n . ' encuesta' . ($n === 1 ? '' : 's') . ' nueva' . ($n === 1 ? '' : 's') . ' del portal.', 'info');
+        avisar('Se recibieron ' . $n . ' respuesta' . ($n === 1 ? '' : 's') . ' nueva' . ($n === 1 ? '' : 's') . ' a encuestas.', 'info');
     }
 }
 
@@ -24,8 +24,8 @@ $st = $pdo->prepare('SELECT COUNT(*) FROM documento WHERE fecha_subida >= ?');
 $st->execute([date('Y-m-d H:i:s', strtotime('-7 days'))]);
 $docsSemana = (int) $st->fetchColumn();
 
-// Encuestas disponibles = las activas (las que se muestran a los pacientes).
-$encuestasActivas = (int) $pdo->query('SELECT COUNT(*) FROM encuesta WHERE activa = 1')->fetchColumn();
+// Encuestas disponibles = las activas que ya están publicadas en el portal (las que los pacientes pueden responder).
+$encuestasActivas = (int) $pdo->query('SELECT COUNT(*) FROM encuesta WHERE activa = 1 AND estado_portal = 1')->fetchColumn();
 $encuestasTotal = (int) $pdo->query('SELECT COUNT(*) FROM encuesta')->fetchColumn();
 
 // Ambulancias: estados posibles (clave guardada => [texto, color]). Cuando exista el seguimiento
@@ -55,7 +55,7 @@ $ultimos = $pdo->query(
 // [etiqueta, valor, detalle, enlace (null = sin enlace)]
 $tarjetas = [
     ['Ambulancias disponibles', $ambDisponibles, 'de ' . count($ambulancias) . ' registrada' . (count($ambulancias) === 1 ? '' : 's'), 'ambulancias/index.php'],
-    ['Encuestas disponibles', $encuestasActivas, 'activas, de ' . $encuestasTotal . ' creada' . ($encuestasTotal === 1 ? '' : 's'), es_admin() ? 'encuestas/index.php' : null],
+    ['Encuestas disponibles', $encuestasActivas, 'en el portal, de ' . $encuestasTotal . ' creada' . ($encuestasTotal === 1 ? '' : 's'), es_admin() ? 'encuestas/index.php' : null],
     ['Documentos en el sistema', $totalDocs, 'incluye ' . $totalGuias . ' guía' . ($totalGuias === 1 ? '' : 's') . ' general' . ($totalGuias === 1 ? '' : 'es'), 'documentos/index.php'],
     ['Subidos en los últimos 7 días', $docsSemana, 'documentos y guías', null],
 ];
