@@ -10,7 +10,7 @@ $pdo = db();
 $id = (int) ($_GET['id'] ?? $_POST['id'] ?? 0);
 $func = null;
 if ($id > 0) {
-    $st = $pdo->prepare('SELECT id_funcionario, nombre, email, id_rol FROM funcionario WHERE id_funcionario = ?');
+    $st = $pdo->prepare('SELECT id_funcionario, nombre, email, cedula, id_rol FROM funcionario WHERE id_funcionario = ?');
     $st->execute([$id]);
     $func = $st->fetch();
     if (!$func) {
@@ -23,6 +23,7 @@ $editandoMiCuenta = $func && (int) $func['id_funcionario'] === (int) $yo['id_fun
 $roles = $pdo->query('SELECT id_rol, nombre_rol FROM rol ORDER BY id_rol')->fetchAll();
 $nombre = $func['nombre'] ?? '';
 $email = $func['email'] ?? '';
+$cedula = $func['cedula'] ? formatear_cedula($func['cedula']) : '';
 $idRol = (int) ($func['id_rol'] ?? ROL_FUNCIONARIO);
 $error = '';
 
@@ -30,11 +31,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exigir_post_con_csrf();
     $nombre = trim((string) ($_POST['nombre'] ?? ''));
     $email = trim((string) ($_POST['email'] ?? ''));
+    $cedula = trim((string) ($_POST['cedula'] ?? ''));
+    $cedulaBd = normalizar_cedula($cedula);
     $clave = (string) ($_POST['contrasena'] ?? '');
     $idRol = $editandoMiCuenta ? (int) $func['id_rol'] : (int) ($_POST['id_rol'] ?? 0);   // nadie cambia su propio rol
 
     if ($nombre === '' || mb_strlen($nombre) > 50) {
         $error = 'Ingrese un usuario de hasta 50 caracteres.';
+    } elseif ($cedulaBd === null) {
+        $error = 'La cédula no es válida. Escríbala con su dígito verificador, por ejemplo 1.234.567-2.';
     } elseif ($email !== '' && (!filter_var($email, FILTER_VALIDATE_EMAIL) || mb_strlen($email) > 70)) {
         $error = 'El email no es válido.';
     } elseif (!in_array($idRol, array_map('intval', array_column($roles, 'id_rol')), true)) {
@@ -47,12 +52,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $emailBd = $email !== '' ? $email : null;
             if (!$func) {
-                $st = $pdo->prepare('INSERT INTO funcionario (nombre, contrasena, id_rol, email, activo) VALUES (?, ?, ?, ?, 1)');
-                $st->execute([$nombre, password_hash($clave, PASSWORD_DEFAULT), $idRol, $emailBd]);
+                $st = $pdo->prepare('INSERT INTO funcionario (nombre, contrasena, id_rol, email, cedula, activo) VALUES (?, ?, ?, ?, ?, 1)');
+                $st->execute([$nombre, password_hash($clave, PASSWORD_DEFAULT), $idRol, $emailBd, $cedulaBd]);
                 avisar('Funcionario registrado correctamente.');
             } else {
-                $st = $pdo->prepare('UPDATE funcionario SET nombre = ?, email = ?, id_rol = ? WHERE id_funcionario = ?');
-                $st->execute([$nombre, $emailBd, $idRol, $id]);
+                $st = $pdo->prepare('UPDATE funcionario SET nombre = ?, email = ?, cedula = ?, id_rol = ? WHERE id_funcionario = ?');
+                $st->execute([$nombre, $emailBd, $cedulaBd, $idRol, $id]);
                 if ($clave !== '') {   // solo se cambia la contraseña si se escribió una nueva
                     $pdo->prepare('UPDATE funcionario SET contrasena = ? WHERE id_funcionario = ?')
                         ->execute([password_hash($clave, PASSWORD_DEFAULT), $id]);
@@ -63,7 +68,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (PDOException $e) {
             // 23000 = valor repetido en una columna UNIQUE (usuario o email)
             if ($e->getCode() === '23000') {
-                $error = 'Ya existe un funcionario con ese usuario o ese email.';
+                $error = 'Ya existe un funcionario con ese usuario, ese email o esa cédula.';
             } else {
                 error_log('[sigsm] ' . $e->getMessage());
                 $error = 'No se pudo guardar. Intente de nuevo.';
@@ -88,6 +93,13 @@ encabezado($func ? 'Editar funcionario' : 'Registrar funcionario', 'funcionarios
                 <label class="form-label" for="nombre">Usuario</label>
                 <input class="form-control" id="nombre" name="nombre" maxlength="50" required value="<?= h($nombre) ?>">
                 <div class="form-text">Es el nombre con el que inicia sesión.</div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label" for="cedula">Cédula de identidad</label>
+                <input class="form-control" id="cedula" name="cedula" maxlength="15" required inputmode="numeric"
+                       placeholder="1.234.567-2" value="<?= h($cedula) ?>">
+                <div class="form-text">Obligatoria, con su dígito verificador. No se usa para iniciar sesión.</div>
             </div>
 
             <div class="mb-3">

@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__ . '/includes/auth.php';
+require_once __DIR__ . '/includes/seguridad.php';
 
 if (usuario_actual()) {
     redirigir('panel.php');
@@ -13,17 +14,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $nombre = trim((string) ($_POST['usuario'] ?? ''));
     $clave = (string) ($_POST['clave'] ?? '');
 
-    // Solo pueden entrar funcionarios activos (los dados de baja no).
-    $st = db()->prepare('SELECT id_funcionario, contrasena FROM funcionario WHERE nombre = ? AND activo = 1');
-    $st->execute([$nombre]);
-    $fila = $st->fetch();
+    if (login_bloqueado($nombre)) {
+        $error = 'Demasiados intentos fallidos. Espere ' . MINUTOS_BLOQUEO . ' minutos o pida ayuda a un administrador.';
+    } elseif (captcha_disponible() && !captcha_correcto((string) ($_POST['captcha'] ?? ''))) {
+        $error = 'El código de seguridad no coincide. Intente con la nueva imagen.';
+    } else {
+        // Solo pueden entrar funcionarios activos (los dados de baja no).
+        $st = db()->prepare('SELECT id_funcionario, contrasena FROM funcionario WHERE nombre = ? AND activo = 1');
+        $st->execute([$nombre]);
+        $fila = $st->fetch();
 
-    if ($fila && password_verify($clave, $fila['contrasena'])) {
-        session_regenerate_id(true);   // evita que se reutilice una sesión anterior
-        $_SESSION['id_funcionario'] = (int) $fila['id_funcionario'];
-        redirigir('panel.php');
+        if ($fila && password_verify($clave, $fila['contrasena'])) {
+            login_limpiar_fallos($nombre);
+            session_regenerate_id(true);   // evita que se reutilice una sesión anterior
+            $_SESSION['id_funcionario'] = (int) $fila['id_funcionario'];
+            redirigir('panel.php');
+        }
+        login_registrar_fallo($nombre);
+        $error = 'Usuario o contraseña incorrectos.';
     }
-    $error = 'Usuario o contraseña incorrectos.';
 }
 
 /**
@@ -85,8 +94,10 @@ $logo = archivo_img(['logo.png', 'logo.svg', 'logo.webp', 'logo.jpg']);
                     <label for="clave">Contraseña</label>
                     <input id="clave" name="clave" type="password" required>
                 </div>
+                <?= captcha_campo() ?>
                 <button type="submit">Iniciar sesión</button>
             </form>
+            <p class="login-nota"><a href="<?= h(url('recuperar.php')) ?>">¿Olvidó su contraseña?</a></p>
 
             <p class="login-nota">Acceso exclusivo para funcionarios del hospital.</p>
         </div>

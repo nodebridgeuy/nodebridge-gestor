@@ -97,6 +97,38 @@ function exigir_post_con_csrf(): void
     }
 }
 
+/* ---------- Cédula de identidad (Uruguay) ---------- */
+
+/**
+ * Deja la cédula como 8 dígitos (con ceros adelante) si es válida, o null si no lo es.
+ * Acepta "1.234.567-2", "12345672", "1234567-2", etc. El último dígito es el verificador.
+ */
+function normalizar_cedula(string $texto): ?string
+{
+    $d = preg_replace('/\D/', '', $texto) ?? '';
+    if (strlen($d) < 7 || strlen($d) > 8) {
+        return null;
+    }
+    $d = str_pad($d, 8, '0', STR_PAD_LEFT);
+    $pesos = [2, 9, 8, 7, 6, 3, 4];
+    $suma = 0;
+    for ($i = 0; $i < 7; $i++) {
+        $suma += (int) $d[$i] * $pesos[$i];
+    }
+    return (int) $d[7] === (10 - $suma % 10) % 10 ? $d : null;
+}
+
+/** "12345672" → "1.234.567-2" (las de 6 dígitos, que se guardan con un cero adelante, salen como "123.456-1"). */
+function formatear_cedula(?string $cedula): string
+{
+    if ($cedula === null || !preg_match('/^\d{8}$/', $cedula)) {
+        return '-';
+    }
+    $cuerpo = ltrim(substr($cedula, 0, 7), '0');
+    $cuerpo = strrev(implode('.', str_split(strrev($cuerpo), 3)));
+    return $cuerpo . '-' . $cedula[7];
+}
+
 /* ---------- Formatos ---------- */
 
 function formatear_fecha(?string $fecha): string

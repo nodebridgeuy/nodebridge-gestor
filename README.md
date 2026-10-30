@@ -9,7 +9,7 @@ Guarda documentos (PDF) por categoría, administra las **guías generales** que 
 2. Iniciar **Apache** y **MySQL** en el panel de XAMPP.
 3. phpMyAdmin → **Importar**:
    - **Instalación nueva:** `database/sigsm.sql` (crea la base `sigsm`; **borra y recrea** las tablas, no usarlo si ya hay datos).
-   - **Ya tenías la base cargada:** `database/migracion_guias_generales.sql`; para las encuestas y los sectores, `database/migracion_encuestas.sql`; y, para vincular las respuestas con sus encuestas, `database/migracion_respuestas.sql` para el estado de ambulancias del Inicio, `database/migracion_ambulancias.sql` y, para publicar las encuestas en el portal y recibir sus respuestas, `database/migracion_puente_portal.sql` (en ese orden; agregan lo nuevo sin borrar nada y se pueden repetir).
+   - **Ya tenías la base cargada:** `database/migracion_guias_generales.sql`; para las encuestas y los sectores, `database/migracion_encuestas.sql`; y, para vincular las respuestas con sus encuestas, `database/migracion_respuestas.sql` para el estado de ambulancias del Inicio, `database/migracion_ambulancias.sql` y, para publicar las encuestas en el portal y recibir sus respuestas, `database/migracion_puente_portal.sql`; para el captcha y la recuperación de contraseña, `database/migracion_recuperacion.sql` (en ese orden; agregan lo nuevo sin borrar nada y se pueden repetir).
 4. Opcional, datos de ejemplo: importar también `database/datos_demo.sql`, `database/datos_demo_encuestas.sql` y `database/datos_demo_ambulancias.sql`.
 5. Conexión con el portal (ver «Puente con el portal informativo»): copiar `.env.example` como `.env` y completar `PORTAL_API_KEY` con la **misma clave** que tiene el portal en `portal-backend/.env` (`API_KEY`). Si el portal no está en la misma máquina, cambiar también `PORTAL_URL`.
 6. Abrir **http://localhost/nodebridge-gestor/**
@@ -36,6 +36,18 @@ Requisitos de PHP (vienen activados en XAMPP): `curl`, `mbstring`, `pdo_mysql`.
 | Entrar al módulo de ambulancias | ✔ | ✔ |
 
 Los permisos se controlan en el servidor (`requerir_login()` / `requerir_admin()`), no solo ocultando botones.
+
+## Inicio de sesión: captcha y contraseña olvidada
+
+- **Captcha propio:** el login pide escribir las 5 letras de una imagen que genera el propio gestor (`captcha.php`, con la extensión GD de PHP si está activa; si no, la dibuja en SVG, así que siempre funciona). No usa servicios de internet, así que funciona en la intranet. Cada código sirve una sola vez.
+- **Bloqueo por intentos:** 5 contraseñas incorrectas en 10 minutos (por usuario o por IP) bloquean el acceso durante ese tiempo.
+- **«¿Olvidó su contraseña?»:** no envía correos (es una intranet). La persona escribe su usuario o email y deja una solicitud. El administrador la ve en **Funcionarios** (aviso arriba de la lista y número en el menú) y elige **Restablecer contraseña**: se crea una contraseña temporal que se muestra una sola vez y se la entrega en persona. Al entrar, la persona tiene que elegir una nueva. También puede **Descartar** la solicitud.
+- Cualquier funcionario puede cambiar su contraseña desde **Cambiar mi contraseña** (menú lateral).
+- Si el único administrador olvida su contraseña no hay quien la restablezca: hay que cambiar el hash en la tabla `funcionario` desde phpMyAdmin (o importar `sigsm.sql`, que reinicia todo). Conviene tener dos administradores.
+
+## Cédula de identidad
+
+Cada funcionario tiene una **cédula obligatoria y única** (se valida el dígito verificador, por ejemplo `1.234.567-2`). **No se usa para iniciar sesión** (se entra con el usuario): la cédula no es secreta y, si fuera el acceso, cualquiera que la sepa conocería el usuario de otra persona. Sirve para identificar al funcionario en la lista y para pedir la recuperación de contraseña (con usuario, email **o cédula**). El administrador de ejemplo viene con la cédula `1.111.111-1`: cambiarla por la real. Los funcionarios ya existentes aparecen con «Falta» hasta que se edite su ficha.
 
 ## Documentos y guías generales
 
@@ -99,11 +111,12 @@ Dos programas separados (el gestor en la intranet, el portal en internet) que se
 
 ```
 panel.php             Inicio: 4 indicadores, estado de las ambulancias y últimos documentos (con Ver y Descargar)
-login.php / logout.php  Login en CSS puro (assets/css/login_sistema.css)
+login.php / logout.php  Login en CSS puro (assets/css/login_sistema.css), con captcha.php
+recuperar.php / cambiar_clave.php  Solicitud de contraseña olvidada / cambio de contraseña
 documentos/           index (documentos y guías: ?tipo=guias), formulario, ver, eliminar, publicar
 encuestas/            index (lista), formulario (crear/editar), estado (activar/desactivar), eliminar, publicar (puente)   [solo Administrador]
                       respuestas (respuestas de pacientes, con su opción en el menú), respuestas_eliminar, sincronizar
-funcionarios/         index, formulario, estado                        [solo Administrador]
+funcionarios/         index (con solicitudes de contraseña), formulario, estado, restablecer                        [solo Administrador]
 ambulancias/          placeholder del módulo 2
 includes/             conexion, entorno (.env), auth, layout, helpers, archivos (PDF), portal (puente con el portal), encuestas (sectores, preguntas y datos que se publican)
 assets/css/           estilos.css (Bootstrap con la paleta teal) y login_sistema.css

@@ -9,7 +9,7 @@ SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- Tablas de la versión anterior del proyecto y las actuales
-DROP TABLE IF EXISTS `respuesta_detalle`, `ambulancia`, `respuesta`, `pregunta`, `encuesta`, `sector`, `sincronizacion`,
+DROP TABLE IF EXISTS `solicitud_clave`, `intento_login`, `respuesta_detalle`, `ambulancia`, `respuesta`, `pregunta`, `encuesta`, `sector`, `sincronizacion`,
                      `respuesta_encuesta`, `documento`, `categoria`, `funcionario`, `rol`;
 
 SET FOREIGN_KEY_CHECKS = 1;
@@ -31,6 +31,8 @@ CREATE TABLE `funcionario` (
   `id_rol` INT NOT NULL,
   `activo` TINYINT(1) NOT NULL DEFAULT 1,        -- 0 = dado de baja (no puede entrar)
   `email` VARCHAR(70) NULL UNIQUE,
+  `cedula` VARCHAR(8) NULL UNIQUE,                -- 8 dígitos con ceros adelante (el formulario la hace obligatoria)
+  `debe_cambiar_clave` TINYINT(1) NOT NULL DEFAULT 0,  -- 1 = tiene una contraseña temporal y debe elegir otra al entrar
   CONSTRAINT `fk_funcionario_rol` FOREIGN KEY (`id_rol`) REFERENCES `rol` (`id_rol`)
 ) ENGINE=InnoDB;
 
@@ -209,6 +211,25 @@ CREATE TABLE `ambulancia` (
   INDEX `idx_ambulancia_estado` (`estado`)
 ) ENGINE=InnoDB;
 
+-- Solicitudes de "Olvidé mi contraseña": las ve el administrador en Funcionarios y restablece la clave.
+CREATE TABLE `solicitud_clave` (
+  `id_solicitud` INT AUTO_INCREMENT PRIMARY KEY,
+  `id_funcionario` INT NOT NULL,
+  `fecha` DATETIME NOT NULL,
+  `atendida` TINYINT(1) NOT NULL DEFAULT 0,
+  INDEX `idx_solicitud_pendiente` (`atendida`, `id_funcionario`),
+  CONSTRAINT `fk_solicitud_funcionario` FOREIGN KEY (`id_funcionario`) REFERENCES `funcionario` (`id_funcionario`) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- Intentos fallidos de inicio de sesión (bloqueo temporal después de 5 en 10 minutos).
+CREATE TABLE `intento_login` (
+  `id_intento` INT AUTO_INCREMENT PRIMARY KEY,
+  `usuario` VARCHAR(50) NOT NULL,
+  `ip` VARCHAR(45) NOT NULL,
+  `fecha` DATETIME NOT NULL,
+  INDEX `idx_intento_fecha` (`fecha`)
+) ENGINE=InnoDB;
+
 -- Usuario inicial. Contraseña: Admin2026!  (cambiarla apenas se entre)
-INSERT INTO `funcionario` (`nombre`, `contrasena`, `id_rol`, `activo`, `email`) VALUES
-  ('admin', '$2y$10$6eo3h4S3ZkkpdWE5hCZ0Zu.42NZG7zJsDhk5vMfLsk1eimanMN8qG', 1, 1, NULL);
+INSERT INTO `funcionario` (`nombre`, `contrasena`, `id_rol`, `activo`, `email`, `cedula`) VALUES
+  ('admin', '$2y$10$6eo3h4S3ZkkpdWE5hCZ0Zu.42NZG7zJsDhk5vMfLsk1eimanMN8qG', 1, 1, NULL, '11111111');   -- cédula de ejemplo: cambiarla por la real

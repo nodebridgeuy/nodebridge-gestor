@@ -26,7 +26,7 @@ function usuario_actual(): ?array
     $id = (int) ($_SESSION['id_funcionario'] ?? 0);
     if ($id > 0) {
         $st = db()->prepare(
-            'SELECT f.id_funcionario, f.nombre, f.email, f.id_rol, r.nombre_rol
+            'SELECT f.id_funcionario, f.nombre, f.email, f.id_rol, f.debe_cambiar_clave, r.nombre_rol
                FROM funcionario f
                JOIN rol r ON r.id_rol = f.id_rol
               WHERE f.id_funcionario = ? AND f.activo = 1'
@@ -52,6 +52,10 @@ function requerir_login(): array
     $u = usuario_actual();
     if ($u === null) {
         redirigir('login.php');
+    }
+    // Con una contraseña temporal solo se puede entrar a elegir la nueva.
+    if ((int) $u['debe_cambiar_clave'] === 1 && !in_array(basename((string) ($_SERVER['SCRIPT_NAME'] ?? '')), ['cambiar_clave.php', 'logout.php'], true)) {
+        redirigir('cambiar_clave.php');
     }
     return $u;
 }

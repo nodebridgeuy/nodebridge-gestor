@@ -3,8 +3,8 @@ USE `sigsm`;
 SET NAMES utf8mb4;
 
 -- Funcionario de prueba. Contraseña: Func2026!
-INSERT INTO `funcionario` (`nombre`, `contrasena`, `id_rol`, `activo`, `email`) VALUES
-  ('funcionario', '$2y$10$iKA9JarZHsVJC7pwLM6qGuwa5u91M0dgnSej0N2ybMi/bnSpstAEq', 2, 1, 'funcionario@ejemplo.local');
+INSERT INTO `funcionario` (`nombre`, `contrasena`, `id_rol`, `activo`, `email`, `cedula`) VALUES
+  ('funcionario', '$2y$10$iKA9JarZHsVJC7pwLM6qGuwa5u91M0dgnSej0N2ybMi/bnSpstAEq', 2, 1, 'funcionario@ejemplo.local', '12345672');
 
 -- Encuestas de ejemplo (como las que traerá el portal)
 INSERT INTO `respuesta_encuesta` (`uuid`, `clasificacion`, `lugar`, `profesional`, `comentario`, `fecha_portal`) VALUES

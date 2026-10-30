@@ -44,6 +44,15 @@ function opciones_menu(): array
 function encabezado(string $titulo, string $activo): void
 {
     $u = usuario_actual();
+    // Solicitudes de "Olvidé mi contraseña" sin atender (solo las ve el administrador).
+    $solicitudesClave = 0;
+    if ($u && es_admin()) {
+        try {
+            $solicitudesClave = (int) db()->query('SELECT COUNT(*) FROM solicitud_clave WHERE atendida = 0')->fetchColumn();
+        } catch (PDOException $e) {
+            // Si todavía no se importó la migración, el menú igual funciona.
+        }
+    }
     ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -84,10 +93,15 @@ function encabezado(string $titulo, string $activo): void
                     <a href="<?= h(url($ruta)) ?>"
                        class="list-group-item list-group-item-action bg-dark text-white border-secondary<?= $clave === $activo ? ' active' : '' ?>">
                         <?= h($texto) ?>
+                        <?php if ($clave === 'funcionarios' && $solicitudesClave > 0): ?>
+                            <span class="badge text-bg-warning ms-1" title="Solicitudes de contraseña pendientes"><?= $solicitudesClave ?></span>
+                        <?php endif; ?>
                     </a>
                 <?php endforeach; ?>
+                <a href="<?= h(url('cambiar_clave.php')) ?>"
+                   class="list-group-item list-group-item-action bg-dark text-white border-secondary mt-3">Cambiar mi contraseña</a>
                 <a href="<?= h(url('logout.php')) ?>"
-                   class="list-group-item list-group-item-action bg-dark text-danger border-secondary mt-3">Cerrar sesión</a>
+                   class="list-group-item list-group-item-action bg-dark text-danger border-secondary">Cerrar sesión</a>
             </div>
         </nav>
         <?php endif; ?>
